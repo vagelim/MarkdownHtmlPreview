@@ -15,6 +15,14 @@ MARKER = re.compile(r'(?m)^<!-- mhp-comment: ([A-Za-z0-9_-]+) -->\r?\n?')
 _server = None
 
 
+def plugin_unloaded():
+    global _server
+    if _server is not None:
+        _server.shutdown()
+        _server.server_close()
+        _server = None
+
+
 def decode_comment(payload):
     try:
         return json.loads(base64.urlsafe_b64decode(payload + '=' * (-len(payload) % 4)).decode('utf-8'))
@@ -24,7 +32,14 @@ def decode_comment(payload):
 
 class CommentHandler(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
-        if self.path != '/preview/' + self.server.token or not self.valid_host():
+        if not self.valid_host():
+            self.send_error(403)
+            return
+        if self.path.startswith('/status/'):
+            active = self.path == '/status/' + self.server.token
+            self.respond(200 if active else 409, 'active' if active else 'outdated')
+            return
+        if self.path != '/preview/' + self.server.token:
             self.send_error(403)
             return
         body = self.server.page.encode('utf-8')
@@ -48,6 +63,7 @@ class CommentHandler(http.server.BaseHTTPRequestHandler):
         if length < 1 or length > 16384:
             self.send_error(413)
             return
+        data = None
         try:
             data = json.loads(self.rfile.read(length).decode('utf-8'))
             token = data['token']
@@ -65,7 +81,8 @@ class CommentHandler(http.server.BaseHTTPRequestHandler):
             if not isinstance(view_id, int) or token != self.server.token or view_id != self.server.view_id:
                 raise ValueError('Preview is no longer active')
         except (ValueError, KeyError, TypeError):
-            self.respond(400, 'Invalid or expired comment')
+            outdated = isinstance(data, dict) and data.get('token') != self.server.token
+            self.respond(409 if outdated else 400, 'This preview is outdated; reopen it from Sublime' if outdated else 'Invalid comment')
             return
         done = threading.Event()
         result = []
@@ -204,11 +221,31 @@ SCRIPT = r'''(function () {
     var card = null;
     var marks = [];
     var resolved = [];
+    var outdated = false;
+    function showOutdated() {
+      if (outdated) return;
+      outdated = true;
+      hint.textContent = 'This preview is outdated; reopen it from Sublime to change comments';
+      hint.style.background = '#8a3b16';
+      toolbar.hidden = true;
+      clearCard();
+      document.querySelectorAll('.comment-bubble, .comment-selection').forEach(function (button) { button.disabled = true; });
+    }
+    function checkStatus() {
+      if (outdated) return;
+      fetch('/status/' + window.commentPreviewConfig.token, {cache: 'no-store'})
+        .then(function (response) { if (response.status === 409) showOutdated(); })
+        .catch(function () {});
+    }
     function request(action, note, text) {
+      if (outdated) return Promise.reject(Error('This preview is outdated; reopen it from Sublime'));
       return fetch('/comment', {method: 'POST', headers: {'Content-Type': 'text/plain'}, body: JSON.stringify({token: window.commentPreviewConfig.token, view_id: window.commentPreviewConfig.view_id, action: action, previous: note.marker, quote: note.quote, note: text})})
-        .then(function (response) { return response.text().then(function (value) { if (!response.ok) throw Error(value); return value; }); });
+        .then(function (response) { return response.text().then(function (value) { if (response.status === 409 && value.indexOf('This preview is outdated') === 0) showOutdated(); if (!response.ok) throw Error(value); return value; }); });
     }
     function report(error) { alert(error instanceof TypeError ? 'Cannot reach Sublime from this preview. Reopen Markdown: Preview with Comments in Sublime, then retry in the new tab.' : error.message); }
+    checkStatus();
+    addEventListener('focus', checkStatus);
+    document.addEventListener('visibilitychange', function () { if (!document.hidden) checkStatus(); });
     function refreshNumbers() { notes.forEach(function (note, index) { note.bubble.textContent = index + 1; }); }
     function clearCard() { if (card) card.remove(); card = null; }
     function clearMarks() { marks.forEach(function (el) { el.remove(); }); marks = []; }
@@ -362,7 +399,7 @@ SCRIPT = r'''(function () {
       if (range) addNote({range: range, quote: data.quote, text: data.note, marker: data.marker});
     });
     document.addEventListener('mouseup', function (event) {
-      if (!article.contains(event.target)) return;
+      if (outdated || !article.contains(event.target)) return;
       var selection = getSelection();
       if (!selection || selection.isCollapsed || !selection.toString().trim()) { toolbar.hidden = true; return; }
       var range = selection.getRangeAt(0);
@@ -375,7 +412,7 @@ SCRIPT = r'''(function () {
     });
     toolbar.addEventListener('mousedown', function (event) { event.preventDefault(); });
     toolbar.addEventListener('click', function () {
-      if (selected) showCard({range: selected.cloneRange(), quote: selected.toString()}, true);
+      if (!outdated && selected) showCard({range: selected.cloneRange(), quote: selected.toString()}, true);
     });
     addEventListener('scroll', position, {passive: true});
     addEventListener('resize', position);
