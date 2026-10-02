@@ -37,6 +37,26 @@ Install the plugin an use the following shortcut to preview the file:
 
 You can of course alter the key bindings in your Sublime Text settings.
 
+### Comments (this fork)
+
+Open a saved Markdown file in Sublime Text and run **Markdown: Preview with Comments** from the Command Palette. This is separate from the original preview command and opens a comment-enabled page in your browser. Keep the Markdown tab active in Sublime while using the preview.
+
+1. Select a phrase in the rendered page, then click **Comment on selection**.
+2. Enter your note and click **Add comment**. The phrase is highlighted and a numbered bubble appears in the margin; click the bubble to read it.
+3. Use **Edit** to change a note or **Resolve** to delete it. **Undo resolve** restores a deleted note while that preview remains open; after a reload, resolved notes are gone.
+
+![Select a phrase in a table cell](screenshots/select-text.png)
+![Select text and comment on the selection](screenshots/comment-on-selection.png)
+![Enter a comment](screenshots/write-comment.png)
+![Highlighted text and comment bubble](screenshots/comment-highlight.png)
+![Read, edit, or resolve a comment](screenshots/comment-actions.png)
+
+Comments are stored as encoded `<!-- mhp-comment: ... -->` annotations in the Markdown file. Add, edit, resolve, and undo resolve save the file automatically. Reopen the preview from Sublime to pick up changes to the Markdown or comments made elsewhere; an older preview tab becomes read-only when a newer preview opens.
+
+The initial implementation requires the selected text to occur exactly once in both the rendered document and the Markdown source. Selections that cross Markdown formatting, cannot be mapped exactly, or are ambiguous are not supported; choose a shorter unique phrase instead. If the quoted text is changed later, its bubble will not appear until the text matches again. Comments are embedded in the file and will be shared with anyone who receives that Markdown file.
+
+The comment-enabled preview uses a local listener on `127.0.0.1` while the plugin is loaded. It reuses the listener for new previews and shuts it down when Sublime unloads the plugin. Use the manual installation of this fork to get this feature; the Package Control release of the upstream plugin does not include it.
+
 
 Template
 --------

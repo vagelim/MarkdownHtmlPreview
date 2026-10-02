@@ -2,5 +2,9 @@
     {
         "caption": "Markdown HTML Preview",
         "command": "markdown_html_preview"
+    },
+    {
+        "caption": "Markdown: Preview with Comments",
+        "command": "markdown_comment_preview"
     }
 ]
